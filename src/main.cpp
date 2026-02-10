@@ -88,13 +88,19 @@ static bool ReadDeviceLoop(const AgentConfig& config, const char* device_name) {
 }
 
 int main(int argc, char** argv) {
+  AppendAgentLog("ProcmonAgent: startup");
   AgentConfig config;
   if (!LoadConfig("agent.ini", config)) {
+    AppendAgentLog("ProcmonAgent: LoadConfig failed");
     return 1;
   }
 
   unsigned long pid = 0;
-  LaunchProcmonAndInject(config.procmon_path, config.hook_dll_path, pid);
+  if (!LaunchProcmonAndInject(config.procmon_path, config.hook_dll_path, pid)) {
+    AppendAgentLog("ProcmonAgent: injection failed");
+  } else {
+    AppendAgentLog("ProcmonAgent: injection ok");
+  }
 
   const char* device_name = "\\\\.\\ProcmonDebugLogger";
   if (!ReadDeviceLoop(config, device_name)) {

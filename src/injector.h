@@ -2,4 +2,5 @@
 
 #include <string>
 
+void AppendAgentLog(const char* msg);
 bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& dll_path, unsigned long& out_pid);

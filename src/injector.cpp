@@ -2,7 +2,7 @@
 
 #include <windows.h>
 
-static void AppendLog(const char* msg) {
+void AppendAgentLog(const char* msg) {
   HANDLE h = CreateFileA("agent.log", GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
   if (h == INVALID_HANDLE_VALUE) {
     return;
@@ -22,7 +22,7 @@ static bool FileExists(const std::string& path) {
 bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& dll_path, unsigned long& out_pid) {
   out_pid = 0;
   if (!FileExists(procmon_path) || !FileExists(dll_path)) {
-    AppendLog("LaunchProcmonAndInject: missing procmon_path or dll_path");
+    AppendAgentLog("LaunchProcmonAndInject: missing procmon_path or dll_path");
     return false;
   }
 
@@ -35,7 +35,7 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
   std::string cmd = "\"" + procmon_path + "\" /AcceptEula /Quiet /Minimized";
   BOOL ok = CreateProcessA(NULL, const_cast<char*>(cmd.c_str()), NULL, NULL, FALSE, CREATE_NEW_CONSOLE, NULL, NULL, &si, &pi);
   if (!ok) {
-    AppendLog("LaunchProcmonAndInject: CreateProcess failed");
+    AppendAgentLog("LaunchProcmonAndInject: CreateProcess failed");
     return false;
   }
 
@@ -44,7 +44,7 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
   SIZE_T path_len = dll_path.size() + 1;
   LPVOID remote_mem = VirtualAllocEx(pi.hProcess, NULL, path_len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
   if (!remote_mem) {
-    AppendLog("LaunchProcmonAndInject: VirtualAllocEx failed");
+    AppendAgentLog("LaunchProcmonAndInject: VirtualAllocEx failed");
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
     return false;
@@ -52,7 +52,7 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
 
   SIZE_T written = 0;
   if (!WriteProcessMemory(pi.hProcess, remote_mem, dll_path.c_str(), path_len, &written)) {
-    AppendLog("LaunchProcmonAndInject: WriteProcessMemory failed");
+    AppendAgentLog("LaunchProcmonAndInject: WriteProcessMemory failed");
     VirtualFreeEx(pi.hProcess, remote_mem, 0, MEM_RELEASE);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
@@ -64,7 +64,7 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
   HANDLE remote_thread = CreateRemoteThread(pi.hProcess, NULL, 0,
                                              (LPTHREAD_START_ROUTINE)load_lib, remote_mem, 0, NULL);
   if (!remote_thread) {
-    AppendLog("LaunchProcmonAndInject: CreateRemoteThread failed");
+    AppendAgentLog("LaunchProcmonAndInject: CreateRemoteThread failed");
     VirtualFreeEx(pi.hProcess, remote_mem, 0, MEM_RELEASE);
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
@@ -72,7 +72,7 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
   }
 
   WaitForSingleObject(remote_thread, 10000);
-  AppendLog("LaunchProcmonAndInject: injection attempted");
+  AppendAgentLog("LaunchProcmonAndInject: injection attempted");
   CloseHandle(remote_thread);
   VirtualFreeEx(pi.hProcess, remote_mem, 0, MEM_RELEASE);
   CloseHandle(pi.hThread);
