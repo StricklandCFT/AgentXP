@@ -45,6 +45,59 @@ static void WriteRawDump(HANDLE file, DWORD tick, const unsigned char* data, DWO
   WriteFile(file, data, len, &written, NULL);
 }
 
+static bool LoadFileBytes(const char* path, std::vector<unsigned char>& out) {
+  out.clear();
+  HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (h == INVALID_HANDLE_VALUE) {
+    return false;
+  }
+  DWORD size = GetFileSize(h, NULL);
+  if (size == INVALID_FILE_SIZE || size == 0) {
+    CloseHandle(h);
+    return false;
+  }
+  out.resize(size);
+  DWORD read = 0;
+  BOOL ok = ReadFile(h, &out[0], size, &read, NULL);
+  CloseHandle(h);
+  return ok == TRUE && read == size;
+}
+
+static bool ReplayIoctlsFromFile(HANDLE h, const char* path) {
+  std::vector<unsigned char> data;
+  if (!LoadFileBytes(path, data)) {
+    return false;
+  }
+
+  const unsigned char* p = &data[0];
+  const unsigned char* end = p + data.size();
+  while (p + 12 <= end) {
+    DWORD code = *(const DWORD*)p; p += 4;
+    DWORD in_len = *(const DWORD*)p; p += 4;
+    DWORD out_len = *(const DWORD*)p; p += 4;
+    if (p + in_len > end) {
+      break;
+    }
+    const unsigned char* in_buf = in_len ? p : NULL;
+    p += in_len;
+
+    std::vector<unsigned char> out_buf;
+    if (out_len) {
+      out_buf.resize(out_len);
+    }
+    DWORD bytes_ret = 0;
+    BOOL ok = DeviceIoControl(h, code,
+                              (LPVOID)in_buf, in_len,
+                              out_buf.empty() ? NULL : &out_buf[0], out_len,
+                              &bytes_ret, NULL);
+    char buf[256];
+    sprintf(buf, "Replay IOCTL 0x%08lX ok=%d bytes=%lu\n", (unsigned long)code, ok ? 1 : 0, (unsigned long)bytes_ret);
+    DWORD written = 0;
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buf, (DWORD)lstrlenA(buf), &written, NULL);
+  }
+  return true;
+}
+
 static bool FileExists(const char* path) {
   DWORD attrs = GetFileAttributesA(path);
   return (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
@@ -164,12 +217,15 @@ int main(int argc, char** argv) {
   DWORD outlen = 0;
   bool auto_mode = false;
   std::string procmon_path;
+  std::string ioctl_file;
 
   for (int i = 1; i < argc; ++i) {
     if (lstrcmpiA(argv[i], "--auto") == 0) {
       auto_mode = true;
     } else if (lstrcmpiA(argv[i], "--procmon-path") == 0 && i + 1 < argc) {
       procmon_path = argv[++i];
+    } else if (lstrcmpiA(argv[i], "--ioctl-file") == 0 && i + 1 < argc) {
+      ioctl_file = argv[++i];
     } else if (lstrcmpiA(argv[i], "--device") == 0 && i + 1 < argc) {
       device = argv[++i];
     } else if (lstrcmpiA(argv[i], "--dump") == 0 && i + 1 < argc) {
@@ -213,6 +269,10 @@ int main(int argc, char** argv) {
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buf, (DWORD)lstrlenA(buf), &written, NULL);
     return 3;
+  }
+
+  if (!ioctl_file.empty()) {
+    ReplayIoctlsFromFile(h, ioctl_file.c_str());
   }
 
   if (ioctl_code != 0) {
