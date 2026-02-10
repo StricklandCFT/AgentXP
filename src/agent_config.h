@@ -7,6 +7,9 @@ struct AgentConfig {
   std::string static_host;
   std::string static_env;
   std::string raw_dump_path;
+  std::string procmon_path;
+  std::string hook_dll_path;
+  std::string ioctl_dump_path;
   int batch_max;
   int batch_interval_ms;
 };

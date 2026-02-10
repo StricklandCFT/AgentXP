@@ -7,13 +7,13 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{C9D49B7C-9A7E-4C12-9C8D-2A9E6E1F9D12}</ProjectGuid>
+    <ProjectGuid>{5CF0B8B9-52E0-41A5-8E27-8B2E71E4D0D2}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <ProjectName>ProcmonAgentXP</ProjectName>
+    <ProjectName>ProcmonHookXP</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
-    <ConfigurationType>Application</ConfigurationType>
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <PlatformToolset>v141_xp</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -29,16 +29,14 @@
       <AdditionalIncludeDirectories>$(ProjectDir)\..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <SubSystem>Console</SubSystem>
+      <SubSystem>Windows</SubSystem>
       <MinimumRequiredVersion>5.01</MinimumRequiredVersion>
-      <AdditionalDependencies>wininet.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>..\hook\procmon_hook.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\src\main.cpp" />
-    <ClCompile Include="..\src\agent_config.cpp" />
-    <ClCompile Include="..\src\http_sender.cpp" />
-    <ClCompile Include="..\src\injector.cpp" />
+    <ClCompile Include="..\hook\procmon_hook.cpp" />
+    <None Include="..\hook\procmon_hook.def" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

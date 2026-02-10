@@ -1,5 +1,6 @@
 #include "agent_config.h"
 #include "http_sender.h"
+#include "injector.h"
 
 #include <windows.h>
 #include <string>
@@ -91,6 +92,9 @@ int main(int argc, char** argv) {
   if (!LoadConfig("agent.ini", config)) {
     return 1;
   }
+
+  unsigned long pid = 0;
+  LaunchProcmonAndInject(config.procmon_path, config.hook_dll_path, pid);
 
   const char* device_name = "\\\\.\\ProcmonDebugLogger";
   if (!ReadDeviceLoop(config, device_name)) {

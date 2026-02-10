@@ -1,0 +1,3 @@
+LIBRARY procmon_hook
+EXPORTS
+  DllMain @1

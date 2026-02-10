@@ -18,6 +18,9 @@ bool LoadConfig(const char* path, AgentConfig& out) {
   out.static_host = GetIniString(path, "static_host", "XP-AGENT");
   out.static_env = GetIniString(path, "static_env", "lab");
   out.raw_dump_path = GetIniString(path, "raw_dump_path", "procmon-raw.bin");
+  out.procmon_path = GetIniString(path, "procmon_path", "C:\\Documents and Settings\\trevor\\Desktop\\SysinternalsSuite\\procmon.exe");
+  out.hook_dll_path = GetIniString(path, "hook_dll_path", "procmon_hook.dll");
+  out.ioctl_dump_path = GetIniString(path, "ioctl_dump_path", "ioctls.bin");
   out.batch_max = GetIniInt(path, "batch_max", 100);
   out.batch_interval_ms = GetIniInt(path, "batch_interval_ms", 2000);
   return true;
