@@ -5,8 +5,8 @@
 
 static void PrintUsage() {
   const char* msg =
-      "Usage: procmon_harness.exe --device \\\\.\\ProcmonDebugLogger --dump procmon-raw.bin "
-      "[--ioctl 0x222004 --inhex deadbeef --outlen 4096]\n";
+      "Usage: procmon_harness.exe [--auto] [--procmon-path <path>] --dump procmon-raw.bin "
+      "[--device \\\\.\\ProcmonDebugLogger] [--ioctl 0x222004 --inhex deadbeef --outlen 4096]\n";
   OutputDebugStringA(msg);
   DWORD written = 0;
   WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), msg, (DWORD)lstrlenA(msg), &written, NULL);
@@ -45,15 +45,132 @@ static void WriteRawDump(HANDLE file, DWORD tick, const unsigned char* data, DWO
   WriteFile(file, data, len, &written, NULL);
 }
 
+static bool FileExists(const char* path) {
+  DWORD attrs = GetFileAttributesA(path);
+  return (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+static std::string JoinPath(const std::string& a, const std::string& b) {
+  if (a.empty()) {
+    return b;
+  }
+  if (a[a.size() - 1] == '\\') {
+    return a + b;
+  }
+  return a + "\\" + b;
+}
+
+static bool TryLaunchProcmon(const char* path) {
+  if (!path || !path[0]) {
+    return false;
+  }
+  if (!FileExists(path)) {
+    return false;
+  }
+  STARTUPINFOA si;
+  PROCESS_INFORMATION pi;
+  ZeroMemory(&si, sizeof(si));
+  ZeroMemory(&pi, sizeof(pi));
+  si.cb = sizeof(si);
+
+  std::string cmd = std::string("\"") + path + "\" /AcceptEula /Quiet /Minimized";
+  BOOL ok = CreateProcessA(NULL, const_cast<char*>(cmd.c_str()), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+  if (ok) {
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+  }
+  return ok == TRUE;
+}
+
+static bool LaunchProcmonAuto(const char* explicit_path) {
+  if (explicit_path && explicit_path[0]) {
+    return TryLaunchProcmon(explicit_path);
+  }
+
+  if (TryLaunchProcmon("procmon.exe")) {
+    return true;
+  }
+  if (TryLaunchProcmon("SysinternalsSuite\\procmon.exe")) {
+    return true;
+  }
+
+  char* profile = NULL;
+  size_t len = 0;
+  if (_dupenv_s(&profile, &len, "USERPROFILE") == 0 && profile) {
+    std::string base(profile);
+    free(profile);
+    std::string candidate = JoinPath(base, "Desktop\\SysinternalsSuite\\procmon.exe");
+    if (TryLaunchProcmon(candidate.c_str())) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static void SetExternalLoggerEvent() {
+  HANDLE h = OpenEventA(EVENT_MODIFY_STATE, FALSE, "ProcmonExternalLoggerEnabled");
+  if (!h) {
+    h = OpenEventA(EVENT_MODIFY_STATE, FALSE, "Global\\ProcmonExternalLoggerEnabled");
+  }
+  if (h) {
+    SetEvent(h);
+    CloseHandle(h);
+  }
+}
+
+static bool FindProcmonDevice(std::string& out_device) {
+  char buffer[8192];
+  DWORD len = QueryDosDeviceA(NULL, buffer, sizeof(buffer));
+  if (len == 0) {
+    return false;
+  }
+  const char* p = buffer;
+  while (*p) {
+    std::string name(p);
+    if (name.find("Procmon") != std::string::npos || name.find("PROCMON") != std::string::npos) {
+      out_device = "\\\\.\\" + name;
+      return true;
+    }
+    p += name.size() + 1;
+  }
+  return false;
+}
+
+static bool WaitForDevice(std::string& device, int retries, int delay_ms) {
+  for (int i = 0; i < retries; ++i) {
+    if (device.empty()) {
+      if (!FindProcmonDevice(device)) {
+        Sleep(delay_ms);
+        continue;
+      }
+    }
+    HANDLE h = CreateFileA(device.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                           NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h != INVALID_HANDLE_VALUE) {
+      CloseHandle(h);
+      return true;
+    }
+    Sleep(delay_ms);
+  }
+  return false;
+}
+
 int main(int argc, char** argv) {
-  std::string device = "\\\\.\\ProcmonDebugLogger";
+  std::string device;
   std::string dump_path = "procmon-raw.bin";
   DWORD ioctl_code = 0;
   std::string inhex;
   DWORD outlen = 0;
+  bool auto_mode = false;
+  std::string procmon_path;
 
   for (int i = 1; i < argc; ++i) {
-    if (lstrcmpiA(argv[i], "--device") == 0 && i + 1 < argc) {
+    if (lstrcmpiA(argv[i], "--auto") == 0) {
+      auto_mode = true;
+    } else if (lstrcmpiA(argv[i], "--procmon-path") == 0 && i + 1 < argc) {
+      procmon_path = argv[++i];
+    } else if (lstrcmpiA(argv[i], "--device") == 0 && i + 1 < argc) {
       device = argv[++i];
     } else if (lstrcmpiA(argv[i], "--dump") == 0 && i + 1 < argc) {
       dump_path = argv[++i];
@@ -70,6 +187,21 @@ int main(int argc, char** argv) {
       PrintUsage();
       return 2;
     }
+  }
+
+  if (auto_mode) {
+    LaunchProcmonAuto(procmon_path.empty() ? NULL : procmon_path.c_str());
+    SetExternalLoggerEvent();
+  }
+  if (device.empty()) {
+    device = "\\\\.\\ProcmonDebugLogger";
+  }
+  if (!WaitForDevice(device, 50, 200)) {
+    char buf[256];
+    sprintf(buf, "Failed to open device: %s\n", device.c_str());
+    DWORD written = 0;
+    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buf, (DWORD)lstrlenA(buf), &written, NULL);
+    return 3;
   }
 
   HANDLE h = CreateFileA(device.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,

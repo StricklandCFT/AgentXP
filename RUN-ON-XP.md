@@ -10,10 +10,10 @@ Use **only** the prebuilt binaries and config at the top level.
 ## What to run
 
 ### 1) Validate device access (recommended first step)
-Run:
+Run (auto-launches Procmon and detects the device). If Procmon is in `C:\Documents and Settings\trevor\Desktop\SysinternalsSuite`, pass that path:
 
 ```
-procmon_harness.exe --device \\.\ProcmonDebugLogger --dump procmon-raw.bin
+procmon_harness.exe --auto --procmon-path "C:\Documents and Settings\trevor\Desktop\SysinternalsSuite\procmon.exe" --dump procmon-raw.bin
 ```
 
 ### 2) Run the agent
