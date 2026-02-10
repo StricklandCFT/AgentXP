@@ -1,4 +1,5 @@
 #include <windows.h>
+#include <stdio.h>
 #include <string>
 #include <vector>
 
@@ -76,7 +77,7 @@ int main(int argc, char** argv) {
   if (h == INVALID_HANDLE_VALUE) {
     DWORD err = GetLastError();
     char buf[256];
-    wsprintfA(buf, "CreateFile failed: %lu\n", err);
+    sprintf(buf, "CreateFile failed: %lu\n", (unsigned long)err);
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buf, (DWORD)lstrlenA(buf), &written, NULL);
     return 3;
@@ -101,7 +102,7 @@ int main(int argc, char** argv) {
                               outbuf.empty() ? NULL : &outbuf[0], (DWORD)outbuf.size(),
                               &bytes_ret, NULL);
     char buf[256];
-    wsprintfA(buf, "DeviceIoControl 0x%08lX ok=%d bytes=%lu\n", ioctl_code, ok ? 1 : 0, bytes_ret);
+    sprintf(buf, "DeviceIoControl 0x%08lX ok=%d bytes=%lu\n", (unsigned long)ioctl_code, ok ? 1 : 0, (unsigned long)bytes_ret);
     DWORD written = 0;
     WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buf, (DWORD)lstrlenA(buf), &written, NULL);
   }
@@ -119,7 +120,7 @@ int main(int argc, char** argv) {
     if (!ok) {
       DWORD err = GetLastError();
       char buf[256];
-      wsprintfA(buf, "ReadFile failed: %lu\n", err);
+      sprintf(buf, "ReadFile failed: %lu\n", (unsigned long)err);
       DWORD written = 0;
       WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), buf, (DWORD)lstrlenA(buf), &written, NULL);
       break;
