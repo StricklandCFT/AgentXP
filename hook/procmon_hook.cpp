@@ -25,6 +25,18 @@ static void OpenLog() {
   }
 }
 
+static void WriteHookLog(const char* msg) {
+  HANDLE h = CreateFileA("hook.log", GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (h == INVALID_HANDLE_VALUE) {
+    return;
+  }
+  SetFilePointer(h, 0, NULL, FILE_END);
+  DWORD written = 0;
+  WriteFile(h, msg, (DWORD)lstrlenA(msg), &written, NULL);
+  WriteFile(h, "\r\n", 2, &written, NULL);
+  CloseHandle(h);
+}
+
 static void WriteIoctl(DWORD code, const void* in_buf, DWORD in_len, DWORD out_len) {
   if (g_log == INVALID_HANDLE_VALUE) {
     return;
@@ -94,6 +106,7 @@ BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID) {
     DisableThreadLibraryCalls(hinst);
     PatchIAT();
     OpenLog();
+    WriteHookLog("procmon_hook: DLL_PROCESS_ATTACH");
   }
   if (reason == DLL_PROCESS_DETACH) {
     if (g_log != INVALID_HANDLE_VALUE) {
