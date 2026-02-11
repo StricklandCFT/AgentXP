@@ -14,7 +14,12 @@ static void OpenLog() {
   if (g_log != INVALID_HANDLE_VALUE) {
     return;
   }
-  g_log = CreateFileA("ioctls.bin", GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  char path[MAX_PATH];
+  DWORD len = GetEnvironmentVariableA("PROC_MON_IOCTLS_PATH", path, sizeof(path));
+  if (len == 0 || len >= sizeof(path)) {
+    lstrcpyA(path, "ioctls.bin");
+  }
+  g_log = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
   if (g_log != INVALID_HANDLE_VALUE) {
     SetFilePointer(g_log, 0, NULL, FILE_END);
   }

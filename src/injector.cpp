@@ -30,6 +30,10 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
     AppendAgentLog("LaunchProcmonAndInject: SetDllDirectory failed");
   }
 
+  if (!SetEnvironmentVariableA("PROC_MON_IOCTLS_PATH", "ioctls.bin")) {
+    AppendAgentLog("LaunchProcmonAndInject: SetEnvironmentVariable failed");
+  }
+
   STARTUPINFOA si;
   PROCESS_INFORMATION pi;
   ZeroMemory(&si, sizeof(si));
