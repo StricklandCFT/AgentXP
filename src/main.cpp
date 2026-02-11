@@ -54,28 +54,35 @@ static bool LoadFileBytes(const char* path, std::vector<unsigned char>& out) {
   out.clear();
   HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
   if (h == INVALID_HANDLE_VALUE) {
+    AppendAgentLog2("LoadFileBytes: CreateFile failed, gle=", GetLastError());
     return false;
   }
   DWORD size = GetFileSize(h, NULL);
   if (size == INVALID_FILE_SIZE || size == 0) {
     CloseHandle(h);
+    AppendAgentLog("LoadFileBytes: file empty or size invalid");
     return false;
   }
   out.resize(size);
   DWORD read = 0;
   BOOL ok = ReadFile(h, &out[0], size, &read, NULL);
   CloseHandle(h);
+  if (!ok || read != size) {
+    AppendAgentLog2("LoadFileBytes: ReadFile failed or partial read, gle=", GetLastError());
+  }
   return ok == TRUE && read == size;
 }
 
 static bool ReplayIoctlsFromFile(HANDLE h, const char* path) {
   std::vector<unsigned char> data;
   if (!LoadFileBytes(path, data)) {
+    AppendAgentLog("ReplayIoctlsFromFile: no data to replay");
     return false;
   }
 
   const unsigned char* p = &data[0];
   const unsigned char* end = p + data.size();
+  int count = 0;
   while (p + 12 <= end) {
     DWORD code = *(const DWORD*)p; p += 4;
     DWORD in_len = *(const DWORD*)p; p += 4;
@@ -95,28 +102,40 @@ static bool ReplayIoctlsFromFile(HANDLE h, const char* path) {
                     (LPVOID)in_buf, in_len,
                     out_buf.empty() ? NULL : &out_buf[0], out_len,
                     &bytes_ret, NULL);
+    ++count;
+  }
+  if (count == 0) {
+    AppendAgentLog("ReplayIoctlsFromFile: parsed 0 ioctls");
+  } else {
+    AppendAgentLog("ReplayIoctlsFromFile: replayed ioctls");
   }
   return true;
 }
 
 static bool WaitForIoctlsFile(const std::string& path, int retries, int delay_ms) {
+  AppendAgentLog("WaitForIoctlsFile: waiting for ioctls.bin");
   for (int i = 0; i < retries; ++i) {
     HANDLE h = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (h != INVALID_HANDLE_VALUE) {
       DWORD size = GetFileSize(h, NULL);
       CloseHandle(h);
       if (size != INVALID_FILE_SIZE && size > 0) {
+        AppendAgentLog("WaitForIoctlsFile: ioctls.bin has data");
         return true;
       }
+    } else {
+      AppendAgentLog2("WaitForIoctlsFile: CreateFile failed, gle=", GetLastError());
     }
     Sleep(delay_ms);
   }
+  AppendAgentLog("WaitForIoctlsFile: timeout waiting for ioctls.bin");
   return false;
 }
 
 static bool ReadDeviceLoop(const AgentConfig& config, const char* device_name) {
   HANDLE h = CreateFileA(device_name, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
   if (h == INVALID_HANDLE_VALUE) {
+    AppendAgentLog2("ReadDeviceLoop: CreateFile device failed, gle=", GetLastError());
     return false;
   }
 
@@ -127,6 +146,9 @@ static bool ReadDeviceLoop(const AgentConfig& config, const char* device_name) {
   HANDLE dump = INVALID_HANDLE_VALUE;
   if (!config.raw_dump_path.empty()) {
     dump = CreateFileA(config.raw_dump_path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (dump == INVALID_HANDLE_VALUE) {
+      AppendAgentLog2("ReadDeviceLoop: CreateFile raw dump failed, gle=", GetLastError());
+    }
   }
 
   std::vector<unsigned char> buffer(64 * 1024);
@@ -134,6 +156,7 @@ static bool ReadDeviceLoop(const AgentConfig& config, const char* device_name) {
     DWORD bytes_read = 0;
     BOOL ok = ReadFile(h, &buffer[0], (DWORD)buffer.size(), &bytes_read, NULL);
     if (!ok) {
+      AppendAgentLog2("ReadDeviceLoop: ReadFile failed, gle=", GetLastError());
       break;
     }
     if (bytes_read == 0) {

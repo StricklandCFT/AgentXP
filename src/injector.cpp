@@ -14,6 +14,12 @@ void AppendAgentLog(const char* msg) {
   CloseHandle(h);
 }
 
+void AppendAgentLog2(const char* msg, DWORD value) {
+  char buffer[256];
+  wsprintfA(buffer, "%s %lu (0x%08lX)", msg, value, value);
+  AppendAgentLog(buffer);
+}
+
 std::string GetExeDir() {
   char path[MAX_PATH];
   DWORD len = GetModuleFileNameA(NULL, path, sizeof(path));

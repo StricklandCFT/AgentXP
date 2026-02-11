@@ -5,9 +5,25 @@
 
 #pragma comment(lib, "imagehlp.lib")
 
+#ifndef STATUS_NOT_IMPLEMENTED
+#define STATUS_NOT_IMPLEMENTED ((NTSTATUS)0xC0000002L)
+#endif
+
 typedef BOOL (WINAPI *DeviceIoControlFn)(HANDLE, DWORD, LPVOID, DWORD, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
+typedef NTSTATUS (NTAPI *NtDeviceIoControlFileFn)(
+    HANDLE,
+    HANDLE,
+    PIO_APC_ROUTINE,
+    PVOID,
+    PIO_STATUS_BLOCK,
+    ULONG,
+    PVOID,
+    ULONG,
+    PVOID,
+    ULONG);
 
 static DeviceIoControlFn g_real = NULL;
+static NtDeviceIoControlFileFn g_real_nt = NULL;
 static HANDLE g_log = INVALID_HANDLE_VALUE;
 
 static void OpenLog() {
@@ -25,8 +41,34 @@ static void OpenLog() {
   }
 }
 
+static void BuildHookLogPath(char* out, DWORD out_len) {
+  if (!out || out_len == 0) {
+    return;
+  }
+  char path[MAX_PATH];
+  DWORD len = GetEnvironmentVariableA("PROC_MON_IOCTLS_PATH", path, sizeof(path));
+  if (len == 0 || len >= sizeof(path)) {
+    lstrcpynA(out, "hook.log", out_len);
+    return;
+  }
+  char* last_sep = strrchr(path, '\\');
+  if (!last_sep) {
+    lstrcpynA(out, "hook.log", out_len);
+    return;
+  }
+  size_t dir_len = (size_t)(last_sep - path + 1);
+  if (dir_len + lstrlenA("hook.log") + 1 > out_len) {
+    lstrcpynA(out, "hook.log", out_len);
+    return;
+  }
+  lstrcpynA(out, path, (int)(dir_len + 1));
+  lstrcatA(out, "hook.log");
+}
+
 static void WriteHookLog(const char* msg) {
-  HANDLE h = CreateFileA("hook.log", GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+  char path[MAX_PATH];
+  BuildHookLogPath(path, sizeof(path));
+  HANDLE h = CreateFileA(path, GENERIC_WRITE, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
   if (h == INVALID_HANDLE_VALUE) {
     return;
   }
@@ -62,7 +104,7 @@ static void PatchIAT() {
   }
   for (; imp->Name; ++imp) {
     const char* dll = (const char*)((BYTE*)exe + imp->Name);
-    if (_stricmp(dll, "kernel32.dll") != 0) {
+    if (_stricmp(dll, "kernel32.dll") != 0 && _stricmp(dll, "ntdll.dll") != 0) {
       continue;
     }
     PIMAGE_THUNK_DATA thunk = (PIMAGE_THUNK_DATA)((BYTE*)exe + imp->FirstThunk);
@@ -72,13 +114,24 @@ static void PatchIAT() {
         continue;
       }
       PIMAGE_IMPORT_BY_NAME by_name = (PIMAGE_IMPORT_BY_NAME)((BYTE*)exe + orig->u1.AddressOfData);
-      if (lstrcmpiA((char*)by_name->Name, "DeviceIoControl") == 0) {
+      if (_stricmp(dll, "kernel32.dll") == 0 && lstrcmpiA((char*)by_name->Name, "DeviceIoControl") == 0) {
         DWORD old = 0;
         VirtualProtect(&thunk->u1.Function, sizeof(void*), PAGE_READWRITE, &old);
         g_real = (DeviceIoControlFn)(ULONG_PTR)thunk->u1.Function;
         thunk->u1.Function = (ULONG_PTR)&DeviceIoControl;
         VirtualProtect(&thunk->u1.Function, sizeof(void*), old, &old);
-        return;
+        continue;
+      }
+      if (_stricmp(dll, "ntdll.dll") == 0 &&
+          (lstrcmpiA((char*)by_name->Name, "NtDeviceIoControlFile") == 0 ||
+           lstrcmpiA((char*)by_name->Name, "ZwDeviceIoControlFile") == 0)) {
+        DWORD old = 0;
+        VirtualProtect(&thunk->u1.Function, sizeof(void*), PAGE_READWRITE, &old);
+        if (!g_real_nt) {
+          g_real_nt = (NtDeviceIoControlFileFn)(ULONG_PTR)thunk->u1.Function;
+        }
+        thunk->u1.Function = (ULONG_PTR)&NtDeviceIoControlFile;
+        VirtualProtect(&thunk->u1.Function, sizeof(void*), old, &old);
       }
     }
   }
@@ -99,6 +152,29 @@ extern "C" __declspec(dllexport) BOOL WINAPI DeviceIoControl(
     g_real = (DeviceIoControlFn)GetProcAddress(GetModuleHandleA("kernel32.dll"), "DeviceIoControl");
   }
   return g_real(hDevice, dwIoControlCode, lpInBuffer, nInBufferSize, lpOutBuffer, nOutBufferSize, lpBytesReturned, lpOverlapped);
+}
+
+extern "C" NTSTATUS NTAPI NtDeviceIoControlFile(
+    HANDLE FileHandle,
+    HANDLE Event,
+    PIO_APC_ROUTINE ApcRoutine,
+    PVOID ApcContext,
+    PIO_STATUS_BLOCK IoStatusBlock,
+    ULONG IoControlCode,
+    PVOID InputBuffer,
+    ULONG InputBufferLength,
+    PVOID OutputBuffer,
+    ULONG OutputBufferLength) {
+  OpenLog();
+  WriteIoctl((DWORD)IoControlCode, InputBuffer, (DWORD)InputBufferLength, (DWORD)OutputBufferLength);
+  if (!g_real_nt) {
+    g_real_nt = (NtDeviceIoControlFileFn)GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtDeviceIoControlFile");
+  }
+  if (!g_real_nt) {
+    return STATUS_NOT_IMPLEMENTED;
+  }
+  return g_real_nt(FileHandle, Event, ApcRoutine, ApcContext, IoStatusBlock, IoControlCode,
+                   InputBuffer, InputBufferLength, OutputBuffer, OutputBufferLength);
 }
 
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID) {
