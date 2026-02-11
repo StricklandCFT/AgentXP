@@ -171,7 +171,12 @@ int main(int argc, char** argv) {
   }
 
   if (!config.ioctl_dump_path.empty()) {
-    WaitForIoctlsFile(config.ioctl_dump_path, 50, 200);
+    std::string base_dir = GetExeDir();
+    std::string ioctls_path = config.ioctl_dump_path;
+    if (ioctls_path.find(':') == std::string::npos && ioctls_path.find('\\') == std::string::npos) {
+      ioctls_path = base_dir + "\\" + ioctls_path;
+    }
+    WaitForIoctlsFile(ioctls_path, 50, 200);
   }
 
   const char* device_name = "\\\\.\\ProcmonDebugLogger";

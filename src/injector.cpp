@@ -14,6 +14,21 @@ void AppendAgentLog(const char* msg) {
   CloseHandle(h);
 }
 
+std::string GetExeDir() {
+  char path[MAX_PATH];
+  DWORD len = GetModuleFileNameA(NULL, path, sizeof(path));
+  if (len == 0 || len >= sizeof(path)) {
+    return ".";
+  }
+  for (int i = (int)len - 1; i >= 0; --i) {
+    if (path[i] == '\\' || path[i] == '/') {
+      path[i] = '\0';
+      break;
+    }
+  }
+  return std::string(path);
+}
+
 static bool FileExists(const std::string& path) {
   DWORD attrs = GetFileAttributesA(path.c_str());
   return (attrs != INVALID_FILE_ATTRIBUTES) && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
@@ -30,7 +45,9 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
     AppendAgentLog("LaunchProcmonAndInject: SetDllDirectory failed");
   }
 
-  if (!SetEnvironmentVariableA("PROC_MON_IOCTLS_PATH", "ioctls.bin")) {
+  std::string base_dir = GetExeDir();
+  std::string ioctls_path = base_dir + "\\ioctls.bin";
+  if (!SetEnvironmentVariableA("PROC_MON_IOCTLS_PATH", ioctls_path.c_str())) {
     AppendAgentLog("LaunchProcmonAndInject: SetEnvironmentVariable failed");
   }
 
@@ -51,10 +68,7 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
 
   std::string dll_full = dll_path;
   if (dll_path.find(':') == std::string::npos && dll_path.find('\\') == std::string::npos) {
-    char cwd[MAX_PATH];
-    if (GetCurrentDirectoryA(sizeof(cwd), cwd)) {
-      dll_full = std::string(cwd) + "\\" + dll_path;
-    }
+    dll_full = base_dir + "\\" + dll_path;
   }
   SIZE_T path_len = dll_full.size() + 1;
   LPVOID remote_mem = VirtualAllocEx(pi.hProcess, NULL, path_len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
