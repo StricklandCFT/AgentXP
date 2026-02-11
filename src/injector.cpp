@@ -26,6 +26,10 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
     return false;
   }
 
+  if (!SetDllDirectoryA(".")) {
+    AppendAgentLog("LaunchProcmonAndInject: SetDllDirectory failed");
+  }
+
   STARTUPINFOA si;
   PROCESS_INFORMATION pi;
   ZeroMemory(&si, sizeof(si));
@@ -41,7 +45,14 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
 
   out_pid = pi.dwProcessId;
 
-  SIZE_T path_len = dll_path.size() + 1;
+  std::string dll_full = dll_path;
+  if (dll_path.find(':') == std::string::npos && dll_path.find('\\') == std::string::npos) {
+    char cwd[MAX_PATH];
+    if (GetCurrentDirectoryA(sizeof(cwd), cwd)) {
+      dll_full = std::string(cwd) + "\\" + dll_path;
+    }
+  }
+  SIZE_T path_len = dll_full.size() + 1;
   LPVOID remote_mem = VirtualAllocEx(pi.hProcess, NULL, path_len, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
   if (!remote_mem) {
     AppendAgentLog("LaunchProcmonAndInject: VirtualAllocEx failed");
@@ -51,7 +62,7 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
   }
 
   SIZE_T written = 0;
-  if (!WriteProcessMemory(pi.hProcess, remote_mem, dll_path.c_str(), path_len, &written)) {
+  if (!WriteProcessMemory(pi.hProcess, remote_mem, dll_full.c_str(), path_len, &written)) {
     AppendAgentLog("LaunchProcmonAndInject: WriteProcessMemory failed");
     VirtualFreeEx(pi.hProcess, remote_mem, 0, MEM_RELEASE);
     CloseHandle(pi.hThread);
@@ -72,7 +83,16 @@ bool LaunchProcmonAndInject(const std::string& procmon_path, const std::string& 
   }
 
   WaitForSingleObject(remote_thread, 10000);
-  AppendAgentLog("LaunchProcmonAndInject: injection attempted");
+  DWORD exit_code = 0;
+  if (GetExitCodeThread(remote_thread, &exit_code)) {
+    if (exit_code == 0) {
+      AppendAgentLog("LaunchProcmonAndInject: LoadLibrary returned NULL");
+    } else {
+      AppendAgentLog("LaunchProcmonAndInject: LoadLibrary returned handle");
+    }
+  } else {
+    AppendAgentLog("LaunchProcmonAndInject: GetExitCodeThread failed");
+  }
   CloseHandle(remote_thread);
   VirtualFreeEx(pi.hProcess, remote_mem, 0, MEM_RELEASE);
   CloseHandle(pi.hThread);
